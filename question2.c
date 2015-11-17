@@ -124,8 +124,8 @@ int main(void) {
 		availMem[i] = 0;
 
 	// initialize queues
-	primary = malloc(sizeof(struct queue));
-	secondary = malloc(sizeof(struct queue));
+	primary = (struct queue *) malloc(sizeof(struct queue));
+	secondary = (struct queue *) malloc(sizeof(struct queue));
 
 	primary->head = NULL;
 	secondary->head = NULL;
