@@ -22,7 +22,7 @@ struct proc {
 };
 
 struct node {
-	struct proc process;
+	struct proc* process;
 	struct node* next;
 };
 
@@ -31,7 +31,7 @@ struct queue {
 	struct node* tail;
 };
 
-void push (struct queue* queue, struct proc process) {
+void push (struct queue* queue, struct proc* process) {
 	struct node* newNode = malloc(sizeof(struct node));
 	newNode->process = process;
 	newNode->next = NULL;
@@ -51,7 +51,7 @@ struct proc* pop (struct queue* queue) {
 	}
 
 	struct node* firstNode = queue->head;
-	struct proc* process = &(queue->head->process);
+	struct proc* process = queue->head->process;
 	if (queue->head == queue->tail) {
 		queue->head = NULL;
 		queue->tail = NULL;
@@ -63,16 +63,16 @@ struct proc* pop (struct queue* queue) {
 	return process;
 }
 
-struct proc createProcess (char name[], int priority, int memory, int runtime) {
-	struct proc newProcess;
+struct proc* createProcess (char name[], int priority, int memory, int runtime) {
+	struct proc* newProcess = malloc(sizeof(struct proc));
 
-	strcpy(newProcess.name, name);
-	newProcess.priority = priority;
-	newProcess.pid = 0;
-	newProcess.address = -1;
-	newProcess.memory = memory;
-	newProcess.runtime = runtime;
-	newProcess.suspended = false;
+	strcpy(newProcess->name, name);
+	newProcess->priority = priority;
+	newProcess->pid = 0;
+	newProcess->address = -1;
+	newProcess->memory = memory;
+	newProcess->runtime = runtime;
+	newProcess->suspended = false;
 
 	return newProcess;
 }
@@ -117,7 +117,7 @@ int main(void) {
 	struct queue *primary, *secondary;
 	struct proc* process;
 	int availMem[MEMORY];
-	pid_t pid;
+	pid_t pid = 0;
 
 	// initialize memory array
 	for (int i = 0; i < MEMORY; i++)
@@ -150,7 +150,7 @@ int main(void) {
 				i++;
 			}
 			// create a new process from each line of the file
-			struct proc newProcess = createProcess (args[0], args[1][0]-'0', atoi(args[2]), args[3][0]-'0');
+			struct proc* newProcess = createProcess (args[0], args[1][0]-'0', atoi(args[2]), args[3][0]-'0');
 
 			if (args[1][0]-'0' == 0) {
 				push(primary, newProcess); // add to primary queue
@@ -163,16 +163,17 @@ int main(void) {
 		printf("File could not be opened\nClosing program...\n");
 		exit(0);
 	}
-	free(file); // close file
+	fclose(file); // close file
 
 	// execute all processes in the primary queue first
-	/*while (primary->head != NULL) {
+	while (primary->head != NULL) {
 		process = pop(primary); // get a process from the queue
 		process->address = allocateMemory(availMem, process->memory); // allocate memory
 
 		pid = fork();
 		if (pid == 0) {
-			process->pid = getpid();
+			if (process->pid == 0) 
+				process->pid = getpid();
 			// print some information about the process
 			printf("Name: %s 	Priority: %d 	PID: %d 	Memory: %d 	Runtime: %d\n",
 					process->name, process->priority, process->pid, process->memory, process->runtime);
@@ -184,7 +185,7 @@ int main(void) {
 		kill(pid, SIGTSTP); // stop process
 		waitpid(pid, NULL, 0); // join process
 		freeMemory(availMem, process->address, process->memory);
-	}*/
+	}
 
 	while (secondary->head != NULL) {
 		process = pop(secondary); // get a process from the queue
@@ -194,23 +195,21 @@ int main(void) {
 
 			if (process->address == -1) {
 				// not enough memory available, push back onto the queue
-				//printf("Not enough memory to allocate: %s\n", process->name);
-				push(secondary, *process);
+				push(secondary, process);
 				continue;
 			}
 		}
 
-		/*printf("\n------------------------------------\n");
-		for (int i = 0; i < MEMORY; i++) {
-			printf("%d", availMem[i]);
+		if (process->pid == 0) {
+			pid = fork(); // create a new child process for every process in the queue that has not ran
+			if (pid != 0)
+				process->pid = pid; // set process pid in parent
+		} else {
+			pid = process->pid; // get pid of currently running child
 		}
-		printf("\n");*/
-
-
-		pid = fork();
 		if (pid == 0) {
-			process->pid = getpid();
-			// print some information about the process
+			process->pid = getpid(); // set process pid in child
+			// print some information about the process to be run for the first time
 			printf("Name: %s 	Priority: %d 	PID: %d 	Memory: %d 	Runtime: %d\n",
 					process->name, process->priority, process->pid, process->memory, process->runtime);
 
@@ -225,14 +224,16 @@ int main(void) {
 			kill(pid, SIGINT); // terminate process
 			process->runtime -= 1;
 			freeMemory(availMem, process->address, process->memory); // free available memory for other processes to use
+			waitpid(pid, NULL, 0); // join process
+			free(process);
 		} else {
 			kill(pid, SIGTSTP); // pause process
 			process->suspended = true;
 			process->runtime -= 1; // decrease runtime
-			push(secondary, *process);
+			push(secondary, process);
 		}
-		waitpid(pid, NULL, 0); // join process
+		process = NULL;
 	}
-
+	process = NULL;
 	free(primary), free(secondary), free(process); // free resources
 }
